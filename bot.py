@@ -34,19 +34,23 @@ def load_db():
         return {"fichas": {}}
 
 def save_db():
-    with open("db.json", "w") as f:
-        json.dump(db, f, indent=4)
+    try:
+        with open("db.json", "w") as f:
+            json.dump(db, f, indent=4)
+    except Exception as e:
+        print("Erro ao salvar DB:", e)
 
 db = load_db()
 
 def get_ficha(user_id):
-    if str(user_id) not in db["fichas"]:
-        db["fichas"][str(user_id)] = {
+    uid = str(user_id)
+    if uid not in db["fichas"]:
+        db["fichas"][uid] = {
             "treinos": 0,
             "recrutamentos": 0,
             "historico": []
         }
-    return db["fichas"][str(user_id]
+    return db["fichas"][uid]
 
 def add_ficha(user_id, registro):
     ficha = get_ficha(user_id)
@@ -55,14 +59,26 @@ def add_ficha(user_id, registro):
 
 # ===== FUNÇÕES =====
 async def enviar_relatorio(guild, tipo, texto):
-    canal = guild.get_channel(RELATORIOS_CANAIS.get(tipo))
-    if canal:
+    try:
+        canal_id = RELATORIOS_CANAIS.get(tipo)
+        canal = guild.get_channel(canal_id)
+
+        if not canal:
+            print(f"[ERRO] Canal não encontrado: {tipo}")
+            return
+
         await canal.send(texto)
 
+    except Exception as e:
+        print("Erro ao enviar relatório:", e)
+
 async def log(guild, texto):
-    canal = discord.utils.get(guild.text_channels, name=LOG_CHANNEL_NAME)
-    if canal:
-        await canal.send(texto)
+    try:
+        canal = discord.utils.get(guild.text_channels, name=LOG_CHANNEL_NAME)
+        if canal:
+            await canal.send(texto)
+    except:
+        pass
 
 # ===== DISCIPLINA =====
 infractions = defaultdict(int)
@@ -88,7 +104,9 @@ async def on_message(message):
 
             if infractions[message.author.id] >= 3:
                 try:
-                    await message.author.timeout(discord.utils.utcnow() + timedelta(minutes=1))
+                    await message.author.timeout(
+                        discord.utils.utcnow() + timedelta(minutes=1)
+                    )
                     await log(message.guild, f"{message.author} punido por indisciplina")
                 except:
                     pass
@@ -96,20 +114,28 @@ async def on_message(message):
 # ===== FICHA =====
 @bot.command()
 async def ficha(ctx, member: discord.Member = None):
-    member = member or ctx.author
-    ficha = get_ficha(member.id)
+    try:
+        member = member or ctx.author
+        ficha = get_ficha(member.id)
 
-    await ctx.send(
-        f"📋 Ficha de {member.name}\n"
-        f"Treinos: {ficha['treinos']}\n"
-        f"Recrutamentos: {ficha['recrutamentos']}\n"
-        f"Histórico: {ficha['historico'][-5:]}"
-    )
+        await ctx.send(
+            f"📋 Ficha de {member.name}\n"
+            f"Treinos: {ficha['treinos']}\n"
+            f"Recrutamentos: {ficha['recrutamentos']}\n"
+            f"Histórico: {ficha['historico'][-5:]}"
+        )
+    except Exception as e:
+        await ctx.send("Erro ao puxar ficha.")
+        print(e)
 
 # ===== TREINO =====
 @bot.command()
 async def treino_rel(ctx, status: str, *, resto):
-    nicks, obs = resto.split("|")
+    try:
+        nicks, obs = resto.split("|")
+    except:
+        await ctx.send("Formato: !treino_rel Aprovado nick1,nick2 | obs")
+        return
 
     texto = f"""📖 RELATÓRIO DE TREINAMENTO 📖
 
@@ -125,12 +151,16 @@ async def treino_rel(ctx, status: str, *, resto):
 
     ficha = get_ficha(ctx.author.id)
     ficha["treinos"] += 1
-    add_ficha(ctx.author.id, f"Treino realizado: {nicks}")
+    add_ficha(ctx.author.id, f"Treino: {nicks}")
 
 # ===== RECRUTAMENTO =====
 @bot.command()
 async def recruta_rel(ctx, *, resto):
-    nicks, obs = resto.split("|")
+    try:
+        nicks, obs = resto.split("|")
+    except:
+        await ctx.send("Formato: !recruta_rel nick1,nick2 | obs")
+        return
 
     texto = f"""🪖 RELATÓRIO DE RECRUTAMENTO 🪖
 
@@ -150,7 +180,11 @@ async def recruta_rel(ctx, *, resto):
 # ===== ADVERTÊNCIA =====
 @bot.command()
 async def adv(ctx, membro: discord.Member, grau: str, *, resto):
-    motivo, provas = resto.split("|")
+    try:
+        motivo, provas = resto.split("|")
+    except:
+        await ctx.send("Formato: !adv @user 1/3 motivo | prova")
+        return
 
     texto = f"""⚠️ RELATÓRIO DE ADVERTÊNCIA ⚠️
 
@@ -167,7 +201,11 @@ async def adv(ctx, membro: discord.Member, grau: str, *, resto):
 # ===== REBAIXAMENTO =====
 @bot.command()
 async def rebaixar_rel(ctx, membro: discord.Member, cargo_antigo: str, cargo_novo: str, *, resto):
-    motivo, provas = resto.split("|")
+    try:
+        motivo, provas = resto.split("|")
+    except:
+        await ctx.send("Formato: !rebaixar_rel @user Cargo1 Cargo2 motivo | prova")
+        return
 
     texto = f"""📉 RELATÓRIO DE REBAIXAMENTO 📉
 
@@ -180,12 +218,16 @@ async def rebaixar_rel(ctx, membro: discord.Member, cargo_antigo: str, cargo_nov
 """
 
     await enviar_relatorio(ctx.guild, "rebaixamento", texto)
-    add_ficha(membro.id, f"Rebaixado: {cargo_antigo} -> {cargo_novo}")
+    add_ficha(membro.id, f"Rebaixado {cargo_antigo} -> {cargo_novo}")
 
 # ===== BANIMENTO =====
 @bot.command()
 async def ban_rel(ctx, membro: discord.Member, tempo: str, *, resto):
-    motivo, provas = resto.split("|")
+    try:
+        motivo, provas = resto.split("|")
+    except:
+        await ctx.send("Formato: !ban_rel @user tempo motivo | prova")
+        return
 
     texto = f"""🚫 RELATÓRIO DE BANIMENTO 🚫
 
@@ -202,7 +244,11 @@ async def ban_rel(ctx, membro: discord.Member, tempo: str, *, resto):
 # ===== EXÍLIO =====
 @bot.command()
 async def exilio(ctx, membro: discord.Member, tipo: str, *, resto):
-    motivo, provas = resto.split("|")
+    try:
+        motivo, provas = resto.split("|")
+    except:
+        await ctx.send("Formato: !exilio @user tipo motivo | prova")
+        return
 
     texto = f"""🏴‍☠️ RELATÓRIO DE EXÍLIO 🏴‍☠️
 
@@ -215,24 +261,48 @@ async def exilio(ctx, membro: discord.Member, tipo: str, *, resto):
 """
 
     await enviar_relatorio(ctx.guild, "exilio", texto)
-    add_ficha(membro.id, f"Exilado ({tipo}) - {motivo}")
+    add_ficha(membro.id, f"Exilado {tipo} - {motivo}")
 
 # ===== IA =====
 memoria = defaultdict(list)
 
 @bot.command()
 async def ia(ctx, *, pergunta):
-    memoria[ctx.author.id].append({"role": "user", "content": pergunta})
+    try:
+        memoria[ctx.author.id].append({"role": "user", "content": pergunta})
 
-    headers = {"Authorization": f"Bearer {GROQ_API_KEY}", "Content-Type": "application/json"}
-    payload = {"model": "llama-3.3-70b-versatile","messages": memoria[ctx.author.id]}
+        headers = {
+            "Authorization": f"Bearer {GROQ_API_KEY}",
+            "Content-Type": "application/json"
+        }
 
-    r = requests.post("https://api.groq.com/openai/v1/chat/completions", headers=headers, json=payload)
-    resposta = r.json()["choices"][0]["message"]["content"]
+        payload = {
+            "model": "llama-3.3-70b-versatile",
+            "messages": memoria[ctx.author.id]
+        }
 
-    memoria[ctx.author.id].append({"role": "assistant", "content": resposta})
+        r = requests.post(
+            "https://api.groq.com/openai/v1/chat/completions",
+            headers=headers,
+            json=payload,
+            timeout=20
+        )
 
-    await ctx.send(resposta)
+        data = r.json()
+
+        if "choices" not in data:
+            await ctx.send("Erro na IA.")
+            return
+
+        resposta = data["choices"][0]["message"]["content"]
+
+        memoria[ctx.author.id].append({"role": "assistant", "content": resposta})
+
+        await ctx.send(resposta)
+
+    except Exception as e:
+        print(e)
+        await ctx.send("Erro ao usar IA.")
 
 # ===== START =====
 bot.run(DISCORD_TOKEN)
