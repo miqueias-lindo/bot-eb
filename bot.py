@@ -50,7 +50,7 @@ def perguntar_groq(mensagens):
         "Content-Type": "application/json"
     }
     payload = {
-        "model": "llama3-8b-8192",
+        "model": "llama-3.3-70b-versatile",
         "messages": mensagens,
         "max_tokens": 500
     }
