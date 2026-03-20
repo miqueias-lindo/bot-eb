@@ -3,27 +3,29 @@ from discord.ext import commands
 import requests
 import os
 import time
+import json
+import asyncio
 from collections import defaultdict
+from aiohttp import web
 
 DISCORD_TOKEN = os.environ.get("DISCORD_TOKEN")
 GROQ_API_KEY = os.environ.get("GROQ_API_KEY")
+GUILD_ID = int(os.environ.get("GUILD_ID", "0"))
+PORT = int(os.environ.get("PORT", "8080"))
 
-# Anti-flood: máximo 3 mensagens por minuto por usuário
+# Anti-flood
 flood_control = defaultdict(list)
 FLOOD_LIMITE = 3
-FLOOD_JANELA = 60  # segundos
+FLOOD_JANELA = 60
 
 def verificar_flood(user_id):
     agora = time.time()
-    mensagens = flood_control[user_id]
-    # Remove mensagens antigas
-    flood_control[user_id] = [t for t in mensagens if agora - t < FLOOD_JANELA]
+    flood_control[user_id] = [t for t in flood_control[user_id] if agora - t < FLOOD_JANELA]
     if len(flood_control[user_id]) >= FLOOD_LIMITE:
-        return True  # está em flood
+        return True
     flood_control[user_id].append(agora)
     return False
 
-# Hierarquia de cargos (mais alto pro mais baixo)
 HIERARQUIA = [
     "Fundador", "[CD] Con-Dono", "[DG] Diretor Geral", "[VDA] Vice-diretor-geral", "[M] Maneger",
     "[MAL] Marechal",
@@ -38,7 +40,6 @@ HIERARQUIA = [
     "Verificado",
 ]
 
-# (patente_display, saudacao, nivel)
 SAUDACOES = {
     "Fundador":                     ("Fundador",          "Olá, Fundador! 👑",                    "alto"),
     "[CD] Con-Dono":                ("Con-Dono",           "Olá, Con-Dono! 👑",                   "alto"),
@@ -90,13 +91,6 @@ def get_cargo_principal(member):
             return cargo
     return None
 
-intents = discord.Intents.default()
-intents.message_content = True
-intents.members = True
-
-bot = commands.Bot(command_prefix="!", intents=intents)
-historico = {}
-
 def perguntar_groq(mensagens):
     headers = {"Authorization": f"Bearer {GROQ_API_KEY}", "Content-Type": "application/json"}
     payload = {"model": "llama-3.3-70b-versatile", "messages": mensagens, "max_tokens": 150}
@@ -106,10 +100,78 @@ def perguntar_groq(mensagens):
         raise Exception(f"Erro da API: {data}")
     return data["choices"][0]["message"]["content"]
 
+intents = discord.Intents.default()
+intents.message_content = True
+intents.members = True
+
+bot = commands.Bot(command_prefix="!", intents=intents)
+historico = {}
+
+# =============================================
+# API WEB — pra o site consultar cargos
+# =============================================
+async def handle_cargos(request):
+    """Endpoint: GET /cargos?user_id=123456789"""
+    user_id = request.rel_url.query.get("user_id")
+
+    # CORS headers
+    headers = {
+        "Access-Control-Allow-Origin": "*",
+        "Content-Type": "application/json"
+    }
+
+    if not user_id:
+        return web.Response(text=json.dumps({"error": "user_id obrigatorio"}), headers=headers, status=400)
+
+    guild = bot.get_guild(GUILD_ID)
+    if not guild:
+        return web.Response(text=json.dumps({"error": "Servidor nao encontrado"}), headers=headers, status=404)
+
+    try:
+        member = await guild.fetch_member(int(user_id))
+        cargos = [{"id": str(r.id), "nome": r.name} for r in member.roles if r.name != "@everyone"]
+        cargo_principal = get_cargo_principal(member)
+
+        patente = "Cidadão"
+        if cargo_principal and cargo_principal in SAUDACOES:
+            patente = SAUDACOES[cargo_principal][0]
+
+        return web.Response(
+            text=json.dumps({
+                "user_id": user_id,
+                "cargos": cargos,
+                "cargo_principal": cargo_principal,
+                "patente": patente
+            }),
+            headers=headers
+        )
+    except discord.NotFound:
+        return web.Response(text=json.dumps({"error": "Membro nao encontrado no servidor"}), headers=headers, status=404)
+    except Exception as e:
+        return web.Response(text=json.dumps({"error": str(e)}), headers=headers, status=500)
+
+async def handle_ping(request):
+    headers = {"Access-Control-Allow-Origin": "*", "Content-Type": "application/json"}
+    return web.Response(text=json.dumps({"status": "online"}), headers=headers)
+
+async def start_web_server():
+    app = web.Application()
+    app.router.add_get("/cargos", handle_cargos)
+    app.router.add_get("/ping", handle_ping)
+    runner = web.AppRunner(app)
+    await runner.setup()
+    site = web.TCPSite(runner, "0.0.0.0", PORT)
+    await site.start()
+    print(f"API web rodando na porta {PORT}")
+
+# =============================================
+# BOT DISCORD
+# =============================================
 @bot.event
 async def on_ready():
     print(f"Bot conectado como {bot.user}")
     await bot.change_presence(activity=discord.Activity(type=discord.ActivityType.watching, name="pelo Exército Brasileiro 🪖"))
+    await start_web_server()
 
 @bot.event
 async def on_message(message):
@@ -127,7 +189,6 @@ async def on_message(message):
     if pergunta.split()[0].lower() in ["ping", "limpar", "help", "patente"]:
         return
 
-    # Anti-flood
     if verificar_flood(message.author.id):
         await message.reply("⛔ Devagar, soldado! Aguarde um momento antes de enviar outra mensagem.")
         return
@@ -166,7 +227,7 @@ async def patente_cmd(ctx):
         patente, saudacao, _ = SAUDACOES[cargo_nome]
         await ctx.send(f"{saudacao} Sua patente é **{patente}**.")
     else:
-        await ctx.send("🔒 Você não está verificado! Vá ao canal de verificação e use o bot Rover para vincular sua conta Roblox.")
+        await ctx.send("🔒 Você não está verificado! Vá ao canal de verificação e use o bot Rover.")
 
 @bot.command(name="limpar")
 @commands.has_permissions(manage_messages=True)
