@@ -16,6 +16,10 @@ PORT = int(os.environ.get("PORT", "8080"))
 
 # IDs dos canais
 CANAL_RECRUTAMENTO = 1470637472781304022
+CANAL_EVENTOS = 1470635180535582720
+CANAL_ANUNCIOS = 1470635151523578078
+CANAL_SORTEIOS = 1472329428888584357
+CANAL_VENDAS = 1470645650113958000
 CANAL_TREINO = 1470637515441569893
 CANAL_EXILIO = 1470637554825957591
 CANAL_BANIMENTO = 1470637613332431002
@@ -165,6 +169,12 @@ async def handle_relatorio(request):
             "banimento": CANAL_BANIMENTO,
             "rebaixamento": CANAL_REBAIXAMENTO,
             "advertencia": CANAL_ADV,
+            "venda": CANAL_VENDAS,
+            "promocao": CANAL_ANUNCIOS,
+            "aviso": CANAL_ANUNCIOS,
+            "evento_eventos": CANAL_EVENTOS,
+            "evento_anuncios": CANAL_ANUNCIOS,
+            "evento_sorteios": CANAL_SORTEIOS,
         }
 
         canal_id = canal_map.get(tipo)
@@ -188,6 +198,14 @@ async def handle_relatorio(request):
             msg = f"**📖 RELATÓRIO DE TREINAMENTO 📖**\n\n👤 INSTRUTOR: {campos.get('instrutor','—')}\n👥 TREINADO(S): {campos.get('treinados','—')}\n📅 DATA E HORA: {campos.get('data','—')}\n📊 STATUS: {campos.get('status','—')}\n📝 OBSERVAÇÕES: {campos.get('observacoes','—')}"
         elif tipo == "recrutamento":
             msg = f"**🪖 RELATÓRIO DE RECRUTAMENTO 🪖**\n\n👤 RECRUTADO: {campos.get('recrutado','—')}\n👮 RECRUTADOR: {campos.get('recrutador','—')}\n📅 DATA: {campos.get('data','—')}\n📝 OBSERVAÇÕES: {campos.get('observacoes','—')}"
+        elif tipo == "venda":
+            msg = f"**💰 RELATÓRIO DE VENDA 💰**\n\n👤 COMPRADOR: {campos.get('nick','—')}\n🎖️ PATENTE: {campos.get('patente','—')}\n💵 VALOR: R$ {campos.get('preco','—')}\n📅 DATA: {campos.get('data','—')}\n⏳ STATUS: AGUARDANDO CONFIRMAÇÃO"
+        elif tipo == "promocao":
+            msg = f"**⬆️ SOLICITAÇÃO DE PROMOÇÃO ⬆️**\n\n👤 NICK: {campos.get('nick','—')}\n📊 PATENTE ATUAL: {campos.get('patente_atual','—')}\n🎯 PATENTE DESEJADA: {campos.get('patente_desejada','—')}\n📝 JUSTIFICATIVA: {campos.get('justificativa','—')}"
+        elif tipo == "aviso":
+            msg = f"**📢 AVISO OFICIAL 📢**\n\n**{campos.get('titulo','—')}**\n\n{campos.get('mensagem','—')}"
+        elif tipo.startswith("evento_"):
+            msg = f"**📅 NOVO EVENTO: {campos.get('nome','—')} 📅**\n\n🎯 TIPO: {campos.get('tipo','—')}\n📅 DATA: {campos.get('data','—')}\n📝 DESCRIÇÃO: {campos.get('descricao','—')}"
         else:
             msg = str(campos)
 
@@ -278,4 +296,3 @@ async def limpar(ctx):
     await ctx.send("🗑️ Histórico limpo!")
 
 bot.run(DISCORD_TOKEN)
-                                                                                                                                                                  
