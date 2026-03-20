@@ -12,9 +12,10 @@ GROQ_API_KEY = os.getenv("GROQ_API_KEY")
 if not DISCORD_TOKEN or not GROQ_API_KEY:
     raise ValueError("⚠️ Configure DISCORD_TOKEN e GROQ_API_KEY!")
 
-# ===== ANTI FLOOD =====
+# ===== CONTROLE =====
 flood_control = defaultdict(list)
 cooldowns = {}
+infractions = defaultdict(int)
 
 FLOOD_LIMITE = 3
 FLOOD_JANELA = 60
@@ -84,23 +85,23 @@ def gerar_info_cargo(cargo):
         return ("Civil", "Olá! 🔒", "civil")
 
     if cargo in ALTOS:
-        return (cargo, "À vontade! 🎖️", "alto")
+        return (cargo, f"À vontade, {cargo}! 🎖️", "alto")
 
     if cargo in MEDIOS:
-        return (cargo, "À vontade! 🔴", "medio")
+        return (cargo, f"À vontade, {cargo}.", "medio")
 
     if cargo in BAIXOS:
-        return (cargo, "Sentido! 🟢", "baixo")
+        return (cargo, f"Em posição, {cargo}.", "baixo")
 
     if cargo in STAFF:
-        return (cargo, "Olá, Staff! 🛡️", "staff")
+        return (cargo, f"Olá, {cargo}.", "staff")
 
     if cargo == "Verificado":
-        return ("Cidadão", "Olá! 🟡", "civil")
+        return ("Cidadão", "Olá.", "civil")
 
-    return (cargo, "Olá! 🟡", "civil")
+    return (cargo, f"Olá, {cargo}.", "civil")
 
-# ===== DISCIPLINA HARDCORE =====
+# ===== DISCIPLINA =====
 PALAVROES = [
     "fdp","filha da puta","porra","caralho","bosta",
     "vsf","vai se fuder","arrombado","desgraça"
@@ -119,15 +120,15 @@ intents.members = True
 bot = commands.Bot(command_prefix="!", intents=intents)
 historico = {}
 
-SYSTEM_PROMPT = """Você é um COMANDANTE do Exército Brasileiro (EB) no Roblox.
+SYSTEM_PROMPT = """Você é um comandante do Exército Brasileiro no Roblox.
 
-Fale como um superior militar:
-- Linguagem firme, respeitosa e natural
-- Use termos como "soldado", "atenção", "em posição"
-- Nunca fale como robô
-- Máximo 3 linhas
+Fale de forma natural, firme e respeitosa.
+Chame o usuário pela patente/cargo sempre.
+Não use linguagem robótica.
 
-Corrija comportamento se necessário.
+Se houver desrespeito, responda com firmeza.
+Máximo 3 linhas.
+
 Foque em regras, treinamentos e patentes."""
 
 def perguntar_groq(mensagens):
@@ -154,7 +155,7 @@ def perguntar_groq(mensagens):
         return r.json()["choices"][0]["message"]["content"]
 
     except:
-        return "⚠️ Erro na IA. Tente novamente."
+        return "Erro na comunicação com o sistema."
 
 @bot.event
 async def on_ready():
@@ -179,34 +180,44 @@ async def on_message(message):
 
     msg = message.content.lower()
 
-    # 🚨 HARDCORE PUNIÇÃO
+    # 🔥 RESPOSTA ESPECIAL
+    if "quem te criou" in msg:
+        await message.reply("Eu fui criado pelo [Dev] Miqueias!\nSe gostou do trabalho dele avalie ele por favor!")
+        return
+
+    # ⚖️ DISCIPLINA PROGRESSIVA
     if cargo not in STAFF:
         if any(p in msg for p in PALAVROES) or any(d in msg for d in DESRESPEITO):
-            try:
-                await message.author.timeout(
-                    discord.utils.utcnow() + timedelta(minutes=1),
-                    reason="Indisciplina"
-                )
-                await message.reply("🔇 Silenciado por 1 minuto. Disciplina, soldado.")
-            except:
-                await message.reply("🔇 Usuário punido.")
-            return
+            infractions[message.author.id] += 1
 
-    # 🫡 EXIGIR RESPOSTA MILITAR
+            if infractions[message.author.id] >= 3:
+                try:
+                    await message.author.timeout(
+                        discord.utils.utcnow() + timedelta(minutes=1)
+                    )
+                    await message.reply(f"🔇 {patente}, você foi silenciado por 1 minuto por comportamento inadequado.")
+                except:
+                    await message.reply("Usuário punido.")
+                return
+            else:
+                await message.reply(f"{patente}, mantenha o respeito.")
+                return
+
+    # 🫡 DISCIPLINA BAIXA PATENTE
     if nivel == "baixo":
         if not any(x in msg for x in ["sim senhor", "sim, senhor", "entendido"]):
-            await message.reply("🪖 Responda corretamente: 'Sim, senhor!'")
+            await message.reply(f"{patente}, responda corretamente.")
             return
 
-    # 🚫 ANTI FLOOD (exceto staff)
+    # 🚫 FLOOD (exceto staff)
     if cargo not in STAFF:
         if verificar_flood(message.author.id):
-            await message.reply("⛔ Controle-se, soldado.")
+            await message.reply(f"{patente}, aguarde antes de enviar outra mensagem.")
             return
 
-    # 🔒 BLOQUEIO CIVIL
+    # 🔒 CIVIL
     if nivel == "civil":
-        await message.reply("🔒 Verifique-se para usar o sistema.")
+        await message.reply("Você precisa se verificar para usar o sistema.")
         return
 
     canal_id = str(message.channel.id)
@@ -222,7 +233,7 @@ async def on_message(message):
 
         historico[canal_id].append({"role": "assistant", "content": resposta})
 
-        await message.reply(f"{saudacao}\n📌 {resposta}")
+        await message.reply(f"{saudacao}\n{resposta}")
 
 # ===== COMANDOS =====
 @bot.command()
@@ -233,11 +244,11 @@ async def ping(ctx):
 @commands.has_permissions(manage_messages=True)
 async def limpar(ctx):
     historico[str(ctx.channel.id)] = []
-    await ctx.send("🗑️ Histórico limpo!")
+    await ctx.send("Histórico limpo.")
 
 @bot.command()
 async def ordem(ctx, *, texto):
-    await ctx.send(f"📢 ORDEM: {texto.upper()}")
+    await ctx.send(f"ORDEM: {texto.upper()}")
 
 # ===== START =====
 bot.run(DISCORD_TOKEN)
