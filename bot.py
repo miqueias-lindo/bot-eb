@@ -47,25 +47,57 @@ HIERARQUIA = [
     "[T-STF] Trial Staff","[DEV] Developers","[B] Builder","Verificado"
 ]
 
-SAUDACOES = {
-    "Fundador": ("Fundador","Olá, Fundador! 👑","alto"),
-    "[MAL] Marechal": ("Marechal","Sentido, Marechal! 🎖️","alto"),
-    "[GEN-E] General de Exército": ("General","À vontade, General! ⭐⭐⭐⭐","alto"),
-    "[CEL] Coronel": ("Coronel","À vontade, Coronel! 🔴","medio"),
-    "[CAP] Capitão": ("Capitão","À vontade, Capitão! 🔴","medio"),
-    "[SUB-T] Sub Tenente": ("Subtenente","À vontade! 🟢","medio"),
-    "[3-SGT] Terceiro sargento": ("3º Sargento","Sentido! 🟢","baixo"),
-    "[SLD] Soldado": ("Soldado","Sentido! 🟢","baixo"),
-    "[RCT] Recruta": ("Recruta","Sentido! 🫡","baixo"),
-    "Verificado": ("Cidadão","Olá! 🟡","civil"),
-}
-
 def get_cargo_principal(member):
     roles = set(r.name for r in member.roles)
     for cargo in HIERARQUIA:
         if cargo in roles:
             return cargo
     return None
+
+# ===== SISTEMA AUTOMÁTICO DE NÍVEL =====
+ALTOS = [
+    "Fundador","[CD] Con-Dono","[DG] Diretor Geral","[VDA] Vice-diretor-geral",
+    "[M] Maneger","[MAL] Marechal","[GEN-E] General de Exército",
+    "[GEN-D] General de Divisão","[GEN-B] General de brigada","[GEN] Generais"
+]
+
+MEDIOS = [
+    "[CEL] Coronel","[T-CEL] Tenente Coronel","[MAJ] Major","[CAP] Capitão",
+    "[1-TNT] Primeiro Tenente","[2-TNT] Segundo tenente","[AAO] Aspirante-A-oficial",
+    "[CDT] Cadete","[OF] Oficiais","[SUB-T] Sub Tenente","[GDS] Graduados",
+    "[1-SGT] Primeiro sargento","[2-SGT] Segundo Sargento"
+]
+
+BAIXOS = [
+    "[3-SGT] Terceiro sargento","[PRÇ] Praças","[CB] Cabo",
+    "[SLD] Soldado","[RCT] Recruta"
+]
+
+STAFF = [
+    "Supervisores","[ADM] Administrador","[MOD] Moderador","[HLP] Helper",
+    "[T-STF] Trial Staff","[DEV] Developers","[B] Builder"
+]
+
+def gerar_info_cargo(cargo):
+    if not cargo:
+        return ("Civil", "Olá! 🔒", "civil")
+
+    if cargo in ALTOS:
+        return (cargo, "À vontade! 🎖️", "alto")
+
+    if cargo in MEDIOS:
+        return (cargo, "À vontade! 🔴", "medio")
+
+    if cargo in BAIXOS:
+        return (cargo, "Sentido! 🟢", "baixo")
+
+    if cargo in STAFF:
+        return (cargo, "Olá, Staff! 🛡️", "staff")
+
+    if cargo == "Verificado":
+        return ("Cidadão", "Olá! 🟡", "civil")
+
+    return (cargo, "Olá! 🟡", "civil")
 
 # ===== BOT =====
 intents = discord.Intents.default()
@@ -123,24 +155,16 @@ async def on_message(message):
     if not pergunta:
         return
 
-    # FLOOD
     if verificar_flood(message.author.id):
         await message.reply("⛔ Aguarde antes de enviar outra mensagem.")
         return
 
     cargo = get_cargo_principal(message.author)
+    patente, saudacao, nivel = gerar_info_cargo(cargo)
 
-    if not cargo:
-        await message.reply("🔒 Verifique-se com o Rover.")
-        return
-
-    patente, saudacao, nivel = SAUDACOES.get(
-        cargo, ("Civil","Olá!","civil")
-    )
-
-    # BLOQUEIO CIVIL
+    # 🔒 BLOQUEIO (AGORA CORRETO)
     if nivel == "civil":
-        await message.reply("🔒 Apenas militares podem usar o sistema.")
+        await message.reply("🔒 Você precisa se verificar para usar o sistema.")
         return
 
     canal_id = str(message.channel.id)
@@ -166,7 +190,6 @@ async def on_message(message):
         await message.reply(f"{saudacao}\n{resposta}")
 
 # ===== COMANDOS =====
-
 @bot.command()
 async def ping(ctx):
     await ctx.send(f"🟢 {round(bot.latency * 1000)}ms")
