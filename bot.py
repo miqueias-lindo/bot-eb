@@ -1,165 +1,76 @@
 import discord
 from discord.ext import commands
-import requests
 import os
-import time
+import json
 from collections import defaultdict
 from datetime import timedelta
+import requests
 
+# ===== CONFIG =====
 DISCORD_TOKEN = os.getenv("DISCORD_TOKEN")
 GROQ_API_KEY = os.getenv("GROQ_API_KEY")
 
-if not DISCORD_TOKEN or not GROQ_API_KEY:
-    raise ValueError("⚠️ Configure DISCORD_TOKEN e GROQ_API_KEY!")
+intents = discord.Intents.all()
+bot = commands.Bot(command_prefix="!", intents=intents)
 
-# ===== CONTROLE =====
-flood_control = defaultdict(list)
-cooldowns = {}
-infractions = defaultdict(int)
+# ===== CANAIS =====
+RELATORIOS_CANAIS = {
+    "recrutamento": 1470637472781304022,
+    "treino": 1470637515441569893,
+    "exilio": 1470637554825957591,
+    "banimento": 1470637613332431002,
+    "rebaixamento": 1470637643888070762,
+    "advertencia": 1470637705032499335
+}
 
-FLOOD_LIMITE = 3
-FLOOD_JANELA = 60
+LOG_CHANNEL_NAME = "logs"
 
-def verificar_flood(user_id):
-    agora = time.time()
+# ===== BANCO =====
+def load_db():
+    try:
+        with open("db.json", "r") as f:
+            return json.load(f)
+    except:
+        return {"fichas": {}}
 
-    if user_id in cooldowns and agora < cooldowns[user_id]:
-        return True
+def save_db():
+    with open("db.json", "w") as f:
+        json.dump(db, f, indent=4)
 
-    mensagens = flood_control[user_id]
-    flood_control[user_id] = [t for t in mensagens if agora - t < FLOOD_JANELA]
+db = load_db()
 
-    if len(flood_control[user_id]) >= FLOOD_LIMITE:
-        cooldowns[user_id] = agora + 30
-        return True
+def get_ficha(user_id):
+    if str(user_id) not in db["fichas"]:
+        db["fichas"][str(user_id)] = {
+            "treinos": 0,
+            "recrutamentos": 0,
+            "historico": []
+        }
+    return db["fichas"][str(user_id]
 
-    flood_control[user_id].append(agora)
-    return False
+def add_ficha(user_id, registro):
+    ficha = get_ficha(user_id)
+    ficha["historico"].append(registro)
+    save_db()
 
-# ===== HIERARQUIA =====
-HIERARQUIA = [
-    "Fundador","[CD] Con-Dono","[DG] Diretor Geral","[VDA] Vice-diretor-geral","[M] Maneger",
-    "[MAL] Marechal","[GEN-E] General de Exército","[GEN-D] General de Divisão",
-    "[GEN-B] General de brigada","[GEN] Generais","[CEL] Coronel","[T-CEL] Tenente Coronel",
-    "[MAJ] Major","[CAP] Capitão","[1-TNT] Primeiro Tenente","[2-TNT] Segundo tenente",
-    "[AAO] Aspirante-A-oficial","[CDT] Cadete","[OF] Oficiais","[SUB-T] Sub Tenente",
-    "[GDS] Graduados","[1-SGT] Primeiro sargento","[2-SGT] Segundo Sargento",
-    "[3-SGT] Terceiro sargento","[PRÇ] Praças","[CB] Cabo","[SLD] Soldado","[RCT] Recruta",
-    "Supervisores","[ADM] Administrador","[MOD] Moderador","[HLP] Helper",
-    "[T-STF] Trial Staff","[DEV] Developers","[B] Builder","Verificado"
-]
+# ===== FUNÇÕES =====
+async def enviar_relatorio(guild, tipo, texto):
+    canal = guild.get_channel(RELATORIOS_CANAIS.get(tipo))
+    if canal:
+        await canal.send(texto)
 
-def get_cargo_principal(member):
-    roles = set(r.name for r in member.roles)
-    for cargo in HIERARQUIA:
-        if cargo in roles:
-            return cargo
-    return None
-
-# ===== NÍVEIS =====
-ALTOS = [
-    "Fundador","[CD] Con-Dono","[DG] Diretor Geral","[VDA] Vice-diretor-geral",
-    "[M] Maneger","[MAL] Marechal","[GEN-E] General de Exército",
-    "[GEN-D] General de Divisão","[GEN-B] General de brigada","[GEN] Generais"
-]
-
-MEDIOS = [
-    "[CEL] Coronel","[T-CEL] Tenente Coronel","[MAJ] Major","[CAP] Capitão",
-    "[1-TNT] Primeiro Tenente","[2-TNT] Segundo tenente","[AAO] Aspirante-A-oficial",
-    "[CDT] Cadete","[OF] Oficiais","[SUB-T] Sub Tenente","[GDS] Graduados",
-    "[1-SGT] Primeiro sargento","[2-SGT] Segundo Sargento"
-]
-
-BAIXOS = [
-    "[3-SGT] Terceiro sargento","[PRÇ] Praças","[CB] Cabo",
-    "[SLD] Soldado","[RCT] Recruta"
-]
-
-STAFF = [
-    "Supervisores","[ADM] Administrador","[MOD] Moderador","[HLP] Helper",
-    "[T-STF] Trial Staff","[DEV] Developers","[B] Builder"
-]
-
-def gerar_info_cargo(cargo):
-    if not cargo:
-        return ("Civil", "Olá! 🔒", "civil")
-
-    if cargo in ALTOS:
-        return (cargo, f"À vontade, {cargo}! 🎖️", "alto")
-
-    if cargo in MEDIOS:
-        return (cargo, f"À vontade, {cargo}.", "medio")
-
-    if cargo in BAIXOS:
-        return (cargo, f"Em posição, {cargo}.", "baixo")
-
-    if cargo in STAFF:
-        return (cargo, f"Olá, {cargo}.", "staff")
-
-    if cargo == "Verificado":
-        return ("Cidadão", "Olá.", "civil")
-
-    return (cargo, f"Olá, {cargo}.", "civil")
+async def log(guild, texto):
+    canal = discord.utils.get(guild.text_channels, name=LOG_CHANNEL_NAME)
+    if canal:
+        await canal.send(texto)
 
 # ===== DISCIPLINA =====
-PALAVROES = [
-    "fdp","filha da puta","porra","caralho","bosta",
-    "vsf","vai se fuder","arrombado","desgraça"
-]
+infractions = defaultdict(int)
+PALAVROES = ["fdp","porra","caralho"]
+STAFF = ["[DEV] Developers","[ADM] Administrador","[MOD] Moderador"]
 
-DESRESPEITO = [
-    "bot lixo","tu é burro","vc é burro","comandante lixo",
-    "idiota","retardado"
-]
-
-# ===== BOT =====
-intents = discord.Intents.default()
-intents.message_content = True
-intents.members = True
-
-bot = commands.Bot(command_prefix="!", intents=intents)
-historico = {}
-
-SYSTEM_PROMPT = """Você é um comandante do Exército Brasileiro no Roblox.
-
-Fale de forma natural, firme e respeitosa.
-Chame o usuário pela patente/cargo sempre.
-Não use linguagem robótica.
-
-Se houver desrespeito, responda com firmeza.
-Máximo 3 linhas.
-
-Foque em regras, treinamentos e patentes."""
-
-def perguntar_groq(mensagens):
-    try:
-        headers = {
-            "Authorization": f"Bearer {GROQ_API_KEY}",
-            "Content-Type": "application/json"
-        }
-
-        payload = {
-            "model": "llama-3.3-70b-versatile",
-            "messages": mensagens,
-            "max_tokens": 150
-        }
-
-        r = requests.post(
-            "https://api.groq.com/openai/v1/chat/completions",
-            headers=headers,
-            json=payload,
-            timeout=30
-        )
-
-        r.raise_for_status()
-        return r.json()["choices"][0]["message"]["content"]
-
-    except:
-        return "Erro na comunicação com o sistema."
-
-@bot.event
-async def on_ready():
-    print(f"🟢 Online como {bot.user}")
+def is_staff(member):
+    return any(role.name in STAFF for role in member.roles)
 
 @bot.event
 async def on_message(message):
@@ -171,84 +82,157 @@ async def on_message(message):
     if not message.content.startswith("!"):
         return
 
-    pergunta = message.content[1:].strip()
-    if not pergunta:
-        return
-
-    cargo = get_cargo_principal(message.author)
-    patente, saudacao, nivel = gerar_info_cargo(cargo)
-
-    msg = message.content.lower()
-
-    # 🔥 RESPOSTA ESPECIAL
-    if "quem te criou" in msg:
-        await message.reply("Eu fui criado pelo [Dev] Miqueias!\nSe gostou do trabalho dele avalie ele por favor!")
-        return
-
-    # ⚖️ DISCIPLINA PROGRESSIVA
-    if cargo not in STAFF:
-        if any(p in msg for p in PALAVROES) or any(d in msg for d in DESRESPEITO):
+    if not is_staff(message.author):
+        if any(p in message.content.lower() for p in PALAVROES):
             infractions[message.author.id] += 1
 
             if infractions[message.author.id] >= 3:
                 try:
-                    await message.author.timeout(
-                        discord.utils.utcnow() + timedelta(minutes=1)
-                    )
-                    await message.reply(f"🔇 {patente}, você foi silenciado por 1 minuto por comportamento inadequado.")
+                    await message.author.timeout(discord.utils.utcnow() + timedelta(minutes=1))
+                    await log(message.guild, f"{message.author} punido por indisciplina")
                 except:
-                    await message.reply("Usuário punido.")
-                return
-            else:
-                await message.reply(f"{patente}, mantenha o respeito.")
-                return
+                    pass
 
-    # 🫡 DISCIPLINA BAIXA PATENTE
-    if nivel == "baixo":
-        if not any(x in msg for x in ["sim senhor", "sim, senhor", "entendido"]):
-            await message.reply(f"{patente}, responda corretamente.")
-            return
-
-    # 🚫 FLOOD (exceto staff)
-    if cargo not in STAFF:
-        if verificar_flood(message.author.id):
-            await message.reply(f"{patente}, aguarde antes de enviar outra mensagem.")
-            return
-
-    # 🔒 CIVIL
-    if nivel == "civil":
-        await message.reply("Você precisa se verificar para usar o sistema.")
-        return
-
-    canal_id = str(message.channel.id)
-    historico.setdefault(canal_id, [])
-
-    historico[canal_id].append({"role": "user", "content": pergunta})
-    historico[canal_id] = historico[canal_id][-6:]
-
-    async with message.channel.typing():
-        resposta = perguntar_groq(
-            [{"role": "system", "content": SYSTEM_PROMPT}] + historico[canal_id]
-        )
-
-        historico[canal_id].append({"role": "assistant", "content": resposta})
-
-        await message.reply(f"{saudacao}\n{resposta}")
-
-# ===== COMANDOS =====
+# ===== FICHA =====
 @bot.command()
-async def ping(ctx):
-    await ctx.send(f"🟢 {round(bot.latency * 1000)}ms")
+async def ficha(ctx, member: discord.Member = None):
+    member = member or ctx.author
+    ficha = get_ficha(member.id)
+
+    await ctx.send(
+        f"📋 Ficha de {member.name}\n"
+        f"Treinos: {ficha['treinos']}\n"
+        f"Recrutamentos: {ficha['recrutamentos']}\n"
+        f"Histórico: {ficha['historico'][-5:]}"
+    )
+
+# ===== TREINO =====
+@bot.command()
+async def treino_rel(ctx, status: str, *, resto):
+    nicks, obs = resto.split("|")
+
+    texto = f"""📖 RELATÓRIO DE TREINAMENTO 📖
+
+👤 Instrutor: {ctx.author.mention}
+👥 Treinado(s): {nicks}
+📅 Data: {discord.utils.utcnow().strftime('%d/%m/%Y %H:%M')}
+📊 Status: {status}
+📝 Observações: {obs}
+"""
+
+    await enviar_relatorio(ctx.guild, "treino", texto)
+    await ctx.send("Relatório enviado.")
+
+    ficha = get_ficha(ctx.author.id)
+    ficha["treinos"] += 1
+    add_ficha(ctx.author.id, f"Treino realizado: {nicks}")
+
+# ===== RECRUTAMENTO =====
+@bot.command()
+async def recruta_rel(ctx, *, resto):
+    nicks, obs = resto.split("|")
+
+    texto = f"""🪖 RELATÓRIO DE RECRUTAMENTO 🪖
+
+👤 Responsável: {ctx.author.mention}
+👥 Recrutado(s): {nicks}
+📅 Data: {discord.utils.utcnow().strftime('%d/%m/%Y')}
+📝 Observações: {obs}
+"""
+
+    await enviar_relatorio(ctx.guild, "recrutamento", texto)
+    await ctx.send("Relatório enviado.")
+
+    ficha = get_ficha(ctx.author.id)
+    ficha["recrutamentos"] += 1
+    add_ficha(ctx.author.id, f"Recrutou: {nicks}")
+
+# ===== ADVERTÊNCIA =====
+@bot.command()
+async def adv(ctx, membro: discord.Member, grau: str, *, resto):
+    motivo, provas = resto.split("|")
+
+    texto = f"""⚠️ RELATÓRIO DE ADVERTÊNCIA ⚠️
+
+👤 Jogador: {membro.mention}
+📝 Motivo: {motivo}
+🔢 Grau: {grau}
+📅 Data: {discord.utils.utcnow().strftime('%d/%m/%Y')}
+📂 Provas: {provas}
+"""
+
+    await enviar_relatorio(ctx.guild, "advertencia", texto)
+    add_ficha(membro.id, f"Advertência {grau} - {motivo}")
+
+# ===== REBAIXAMENTO =====
+@bot.command()
+async def rebaixar_rel(ctx, membro: discord.Member, cargo_antigo: str, cargo_novo: str, *, resto):
+    motivo, provas = resto.split("|")
+
+    texto = f"""📉 RELATÓRIO DE REBAIXAMENTO 📉
+
+👤 Usuário: {membro.mention}
+⬆️ Cargo anterior: {cargo_antigo}
+⬇️ Novo cargo: {cargo_novo}
+📝 Motivo: {motivo}
+📅 Data: {discord.utils.utcnow().strftime('%d/%m/%Y')}
+📸 Provas: {provas}
+"""
+
+    await enviar_relatorio(ctx.guild, "rebaixamento", texto)
+    add_ficha(membro.id, f"Rebaixado: {cargo_antigo} -> {cargo_novo}")
+
+# ===== BANIMENTO =====
+@bot.command()
+async def ban_rel(ctx, membro: discord.Member, tempo: str, *, resto):
+    motivo, provas = resto.split("|")
+
+    texto = f"""🚫 RELATÓRIO DE BANIMENTO 🚫
+
+👤 Jogador: {membro.mention}
+📝 Motivo: {motivo}
+⏳ Tempo: {tempo}
+📅 Data: {discord.utils.utcnow().strftime('%d/%m/%Y')}
+📂 Provas: {provas}
+"""
+
+    await enviar_relatorio(ctx.guild, "banimento", texto)
+    add_ficha(membro.id, f"Banido {tempo} - {motivo}")
+
+# ===== EXÍLIO =====
+@bot.command()
+async def exilio(ctx, membro: discord.Member, tipo: str, *, resto):
+    motivo, provas = resto.split("|")
+
+    texto = f"""🏴‍☠️ RELATÓRIO DE EXÍLIO 🏴‍☠️
+
+👤 Exilado: {membro.mention}
+📝 Motivo: {motivo}
+⛓️ Tipo: {tipo}
+📅 Data: {discord.utils.utcnow().strftime('%d/%m/%Y')}
+👮 Responsável: {ctx.author.mention}
+📂 Provas: {provas}
+"""
+
+    await enviar_relatorio(ctx.guild, "exilio", texto)
+    add_ficha(membro.id, f"Exilado ({tipo}) - {motivo}")
+
+# ===== IA =====
+memoria = defaultdict(list)
 
 @bot.command()
-@commands.has_permissions(manage_messages=True)
-async def limpar(ctx):
-    historico[str(ctx.channel.id)] = []
-    await ctx.send("Histórico limpo.")
+async def ia(ctx, *, pergunta):
+    memoria[ctx.author.id].append({"role": "user", "content": pergunta})
 
-@bot.command()
-async def ordem(ctx, *, texto):
-    await ctx.send(f"ORDEM: {texto.upper()}")
+    headers = {"Authorization": f"Bearer {GROQ_API_KEY}", "Content-Type": "application/json"}
+    payload = {"model": "llama-3.3-70b-versatile","messages": memoria[ctx.author.id]}
+
+    r = requests.post("https://api.groq.com/openai/v1/chat/completions", headers=headers, json=payload)
+    resposta = r.json()["choices"][0]["message"]["content"]
+
+    memoria[ctx.author.id].append({"role": "assistant", "content": resposta})
+
+    await ctx.send(resposta)
 
 # ===== START =====
 bot.run(DISCORD_TOKEN)
